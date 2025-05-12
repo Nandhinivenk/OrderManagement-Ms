@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="Encoding">
+    <file url="file://$PROJECT_DIR$/cloud-kitchen-microservices/admin-service/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/cloud-kitchen-microservices/api-gateway/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/cloud-kitchen-microservices/customer-service/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/cloud-kitchen-microservices/delivery-service/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/cloud-kitchen-microservices/discovery-server/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/cloud-kitchen-microservices/food-catalog-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/cloud-kitchen-microservices/foodingredientmapping-service/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/cloud-kitchen-microservices/inventory-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/cloud-kitchen-microservices/kitchenflow-service/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/cloud-kitchen-microservices/order-service/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/cloud-kitchen-microservices/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/src/main/java" charset="UTF-8" />

@@ -6,6 +6,8 @@
       <list>
         <option value="$PROJECT_DIR$/pom.xml" />
         <option value="$PROJECT_DIR$/cloud-kitchen-microservices/pom.xml" />
+        <option value="$PROJECT_DIR$/cloud-kitchen-microservices/foodingredientmapping-service/pom.xml" />
+        <option value="$PROJECT_DIR$/cloud-kitchen-microservices/kitchenflow-service/pom.xml" />
       </list>
     </option>
   </component>

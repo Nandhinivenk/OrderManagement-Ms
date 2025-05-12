@@ -2,9 +2,12 @@ package com.cloudkitchen.orderservice.service.impl;
 
 import com.cloudkitchen.orderservice.client.CustomerClient;
 import com.cloudkitchen.orderservice.client.FoodItemClient;
+import com.cloudkitchen.orderservice.client.FoodIngredientMappingClient;
+import com.cloudkitchen.orderservice.client.KitchenFlowClient;
 import com.cloudkitchen.orderservice.dto.*;
 import com.cloudkitchen.orderservice.exception.CustomerNotFoundException;
 import com.cloudkitchen.orderservice.exception.FoodItemNotFoundException;
+import com.cloudkitchen.orderservice.exception.InsufficientInventoryException;
 import com.cloudkitchen.orderservice.exception.OrderItemNotFoundException;
 import com.cloudkitchen.orderservice.exception.OrderNotFoundException;
 import com.cloudkitchen.orderservice.model.Order;
@@ -14,21 +17,25 @@ import com.cloudkitchen.orderservice.repository.OrderRepository;
 import com.cloudkitchen.orderservice.service.OrderService;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class OrderServiceImpl implements OrderService {
-    
+
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final CustomerClient customerClient;
     private final FoodItemClient foodItemClient;
-    
+    private final FoodIngredientMappingClient foodIngredientMappingClient;
+    private final KitchenFlowClient kitchenFlowClient;
+
     @Override
     @Transactional
     public OrderDTO createOrder(CreateOrderRequest createOrderRequest) {
@@ -38,18 +45,18 @@ public class OrderServiceImpl implements OrderService {
         } catch (FeignException e) {
             throw new CustomerNotFoundException("Customer not found with id: " + createOrderRequest.getCustomerId());
         }
-        
+
         // Create order
         Order order = new Order();
         order.setCustomerId(createOrderRequest.getCustomerId());
         order.setPaymentMethod(createOrderRequest.getPaymentMethod());
         order.setStatus(Order.STATUS_PENDING);
         order.setPaymentStatus(Order.PAYMENT_PENDING);
-        
+
         // Save order to get ID
         Order savedOrder = orderRepository.save(order);
-        
-        // Add order items
+
+        // Add order items and check inventory availability
         for (OrderItemDTO itemDTO : createOrderRequest.getOrderItems()) {
             // Validate food item
             FoodItemDTO foodItem;
@@ -61,7 +68,21 @@ public class OrderServiceImpl implements OrderService {
             } catch (FeignException e) {
                 throw new FoodItemNotFoundException("Food item not found with id: " + itemDTO.getFoodItemId());
             }
-            
+
+            // Check inventory availability
+            try {
+                ResponseEntity<Map<String, Boolean>> response = foodIngredientMappingClient
+                        .checkInventoryAvailability(foodItem.getId(), itemDTO.getQuantity());
+
+                Map<String, Boolean> availability = response.getBody();
+                if (availability == null || !availability.getOrDefault("available", false)) {
+                    throw new InsufficientInventoryException("Insufficient inventory for food item: " + foodItem.getName());
+                }
+            } catch (FeignException e) {
+                // If the service is not available, we'll proceed without inventory check
+                System.err.println("Warning: Could not check inventory availability: " + e.getMessage());
+            }
+
             // Create order item
             OrderItem orderItem = new OrderItem();
             orderItem.setOrder(savedOrder);
@@ -69,77 +90,95 @@ public class OrderServiceImpl implements OrderService {
             orderItem.setFoodItemName(foodItem.getName());
             orderItem.setQuantity(itemDTO.getQuantity());
             orderItem.setPrice(foodItem.getPrice());
-            
+
             // Add to order
             savedOrder.addOrderItem(orderItem);
         }
-        
+
         // Save updated order
         Order finalOrder = orderRepository.save(savedOrder);
-        
+
+        // Update inventory for each order item
+        for (OrderItem item : finalOrder.getOrderItems()) {
+            try {
+                foodIngredientMappingClient.updateInventoryAfterOrder(item.getFoodItemId(), item.getQuantity());
+            } catch (FeignException e) {
+                // If the service is not available, log the error but don't fail the order
+                System.err.println("Warning: Could not update inventory: " + e.getMessage());
+            }
+        }
+
+        // Initialize kitchen flow
+        try {
+            kitchenFlowClient.initializeOrderFlow(finalOrder.getId());
+        } catch (FeignException e) {
+            // If the service is not available, log the error but don't fail the order
+            System.err.println("Warning: Could not initialize kitchen flow: " + e.getMessage());
+        }
+
         // Return DTO
         return mapToDTO(finalOrder);
     }
-    
+
     @Override
     public OrderDTO getOrderById(Long id) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new OrderNotFoundException("Order not found with id: " + id));
-        
+
         return mapToDTO(order);
     }
-    
+
     @Override
     public List<OrderDTO> getAllOrders() {
         return orderRepository.findAll().stream()
                 .map(this::mapToDTO)
                 .collect(Collectors.toList());
     }
-    
+
     @Override
     public List<OrderDTO> getOrdersByCustomerId(Long customerId) {
         return orderRepository.findByCustomerId(customerId).stream()
                 .map(this::mapToDTO)
                 .collect(Collectors.toList());
     }
-    
+
     @Override
     public List<OrderDTO> getOrdersByStatus(String status) {
         return orderRepository.findByStatus(status).stream()
                 .map(this::mapToDTO)
                 .collect(Collectors.toList());
     }
-    
+
     @Override
     @Transactional
     public OrderDTO updateOrderStatus(Long id, String status) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new OrderNotFoundException("Order not found with id: " + id));
-        
+
         order.setStatus(status);
         Order updatedOrder = orderRepository.save(order);
-        
+
         return mapToDTO(updatedOrder);
     }
-    
+
     @Override
     @Transactional
     public OrderDTO updatePaymentStatus(Long id, String paymentStatus) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new OrderNotFoundException("Order not found with id: " + id));
-        
+
         order.setPaymentStatus(paymentStatus);
         Order updatedOrder = orderRepository.save(order);
-        
+
         return mapToDTO(updatedOrder);
     }
-    
+
     @Override
     @Transactional
     public OrderDTO addItemToOrder(Long orderId, OrderItemDTO orderItemDTO) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException("Order not found with id: " + orderId));
-        
+
         // Validate food item
         FoodItemDTO foodItem;
         try {
@@ -150,7 +189,7 @@ public class OrderServiceImpl implements OrderService {
         } catch (FeignException e) {
             throw new FoodItemNotFoundException("Food item not found with id: " + orderItemDTO.getFoodItemId());
         }
-        
+
         // Create order item
         OrderItem orderItem = new OrderItem();
         orderItem.setOrder(order);
@@ -158,61 +197,61 @@ public class OrderServiceImpl implements OrderService {
         orderItem.setFoodItemName(foodItem.getName());
         orderItem.setQuantity(orderItemDTO.getQuantity());
         orderItem.setPrice(foodItem.getPrice());
-        
+
         // Add to order
         order.addOrderItem(orderItem);
-        
+
         // Save updated order
         Order updatedOrder = orderRepository.save(order);
-        
+
         return mapToDTO(updatedOrder);
     }
-    
+
     @Override
     @Transactional
     public OrderDTO removeItemFromOrder(Long orderId, Long orderItemId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException("Order not found with id: " + orderId));
-        
+
         OrderItem orderItem = orderItemRepository.findById(orderItemId)
                 .orElseThrow(() -> new OrderItemNotFoundException("Order item not found with id: " + orderItemId));
-        
+
         // Verify the item belongs to the order
         if (!orderItem.getOrder().getId().equals(orderId)) {
             throw new IllegalArgumentException("Order item does not belong to the specified order");
         }
-        
+
         // Remove from order
         order.removeOrderItem(orderItem);
-        
+
         // Save updated order
         Order updatedOrder = orderRepository.save(order);
-        
+
         return mapToDTO(updatedOrder);
     }
-    
+
     @Override
     @Transactional
     public OrderDTO cancelOrder(Long id) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new OrderNotFoundException("Order not found with id: " + id));
-        
+
         order.setStatus(Order.STATUS_CANCELLED);
         Order updatedOrder = orderRepository.save(order);
-        
+
         return mapToDTO(updatedOrder);
     }
-    
+
     @Override
     @Transactional
     public void deleteOrder(Long id) {
         if (!orderRepository.existsById(id)) {
             throw new OrderNotFoundException("Order not found with id: " + id);
         }
-        
+
         orderRepository.deleteById(id);
     }
-    
+
     private OrderDTO mapToDTO(Order order) {
         OrderDTO dto = new OrderDTO();
         dto.setId(order.getId());
@@ -222,7 +261,7 @@ public class OrderServiceImpl implements OrderService {
         dto.setTotalAmount(order.getTotalAmount());
         dto.setPaymentMethod(order.getPaymentMethod());
         dto.setPaymentStatus(order.getPaymentStatus());
-        
+
         // Try to get customer name
         try {
             CustomerDTO customer = customerClient.getCustomerById(order.getCustomerId()).getBody();
@@ -232,16 +271,16 @@ public class OrderServiceImpl implements OrderService {
         } catch (Exception e) {
             // Ignore if customer service is not available
         }
-        
+
         // Map order items
         List<OrderItemDTO> orderItemDTOs = order.getOrderItems().stream()
                 .map(this::mapToDTO)
                 .collect(Collectors.toList());
         dto.setOrderItems(orderItemDTOs);
-        
+
         return dto;
     }
-    
+
     private OrderItemDTO mapToDTO(OrderItem orderItem) {
         OrderItemDTO dto = new OrderItemDTO();
         dto.setId(orderItem.getId());
