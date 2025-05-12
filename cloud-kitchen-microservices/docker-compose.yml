@@ -1,0 +1,84 @@
+version: '3'
+
+services:
+  discovery-server:
+    build: ./discovery-server
+    ports:
+      - "8761:8761"
+    networks:
+      - cloud-kitchen-network
+
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      - discovery-server
+    environment:
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka
+    networks:
+      - cloud-kitchen-network
+
+  customer-service:
+    build: ./customer-service
+    ports:
+      - "8081:8081"
+    depends_on:
+      - discovery-server
+    environment:
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka
+    networks:
+      - cloud-kitchen-network
+
+  food-catalog-service:
+    build: ./food-catalog-service
+    ports:
+      - "8082:8082"
+    depends_on:
+      - discovery-server
+    environment:
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka
+    networks:
+      - cloud-kitchen-network
+
+  order-service:
+    build: ./order-service
+    ports:
+      - "8083:8083"
+    depends_on:
+      - discovery-server
+      - customer-service
+      - food-catalog-service
+    environment:
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka
+    networks:
+      - cloud-kitchen-network
+
+  delivery-service:
+    build: ./delivery-service
+    ports:
+      - "8084:8084"
+    depends_on:
+      - discovery-server
+      - order-service
+    environment:
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka
+    networks:
+      - cloud-kitchen-network
+
+  inventory-service:
+    build: ./inventory-service
+    ports:
+      - "8085:8085"
+    depends_on:
+      - discovery-server
+    environment:
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka
+    volumes:
+      - ./qrcodes:/qrcodes
+    networks:
+      - cloud-kitchen-network
+
+networks:
+  cloud-kitchen-network:
+    driver: bridge

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+</head>
+<body>
+    <h1>API Connection Test</h1>
+    <button id="testBtn">Test API Connection</button>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('testBtn').addEventListener('click', function() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = 'Testing connection...';
+            
+            // Try to fetch customers as a test
+            fetch('http://localhost:8080/api/customers')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok: ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    resultDiv.innerHTML = 'Connection successful! Received data: ' + JSON.stringify(data);
+                })
+                .catch(error => {
+                    resultDiv.innerHTML = 'Connection failed: ' + error.message;
+                    console.error('Error:', error);
+                });
+        });
+    </script>
+</body>
+</html>
